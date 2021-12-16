@@ -5,6 +5,8 @@
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
 #endif
 
+//#define DEBUG
+
 #include <Arduino.h>
 
 #include <ESP8266WiFi.h>
@@ -115,17 +117,21 @@ void read_th()
   if (isnan(h) || isnan(t))
   {
     //error
+#ifdef DEBUG
     Serial.println(F("Failed to read from DHT sensor!"));
+#endif
     t = h = 0;
   }
   else
   {
+#ifdef DEBUG
     //serial
     Serial.print(F("Temperature: "));
     Serial.print(t);
     Serial.print(F("°C, Humidity: "));
     Serial.print(h);
     Serial.println("%");
+#endif
   }
 
   //save in table
@@ -288,10 +294,12 @@ void setup()
   }
   base_time = time(nullptr);
 
+#ifdef DEBUG
   Serial.println();
   Serial.println(F("---------------HTMON----------------"));
   Serial.println(ctime(&base_time));
   Serial.println(F("------------------------------------"));
+#endif
 
   memset(t_table, 0, sizeof(t_table));
   memset(h_table, 0, sizeof(h_table));
