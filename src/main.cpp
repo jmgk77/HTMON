@@ -42,8 +42,7 @@ float h_table[HT_SIZE];
 
 int light_state = 0;
 
-const char html_header[] PROGMEM = R""""(
-<!DOCTYPE html>
+const char html_header[] PROGMEM = R""""(<!DOCTYPE html>
 <html lang='pt-br'>
 <head>
 <meta http-equiv='refresh' content='60'>
@@ -52,13 +51,31 @@ const char html_header[] PROGMEM = R""""(
 <meta http-equiv='cache-control' content='no-cache, no-store, must-revalidate'>
 <title>HTMON</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel='shortcut icon' href=')"""";
+
+const char html_header2[] PROGMEM = R""""('/>
+<style>
+.deg_btn{position:relative;display:inline-block;text-decoration:none;padding:0 30px;font-size:19px;height:40px;line-height:40px!;vertical-align:middle;background:#51587b;font-size:20px;color:#fff;transition:.4s}.deg_btn:before{position:absolute;content:'';left:0;top:0;width:0;height:0;border:none;border-left:solid 21px #fff;border-bottom:solid 41px transparent;z-index:1;transition:.4s}.deg_btn:after{position:absolute;content:'';right:0;top:0;width:0;height:0;border:none;border-left:solid 21px transparent;border-bottom:solid 41px #fff;z-index:1;transition:.4s}.deg_btn:hover:after,.deg_btn:hover:before{border-left-width:25px}.deg_btn:hover{background:#2c3148}#outer{width:100%;text-align:center}.inner{display:inline-block}a
+</style>
 </head>
-<body>
-)"""";
+<body>)"""";
+
+const char light_on[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABrVBMVEUAAABjYgRVVAUAAC0AAF5+fAlycAkWFgxHSAAAAArMvETKukbKukdgYARGRQOulm8AAAIKCgH//wAZGAQODRHW0teNiwgNDAMMDAAfHhLFwclUUjxhX0kTETYCAgAvLyAyMQFBPxgHCAAoJxlQUAMlJQcjIhJzdgAfHwEREQQSEgkfHgggHhRGRgAmJQcoJhKfngUUEwAODgQXFg4DAgkHBRApKAUhIAwrKB6GhQYaGQIPDwEWFgYVFBAqKQNeXQB5eABnZwBRUAAdHQIZFxwyMQAjIgUjIgu1sLyHhgcPDwQNDAQZGA01NQCSkgBpaQAqKQMkJAgdHA0iIRO/usQNDAN3dgBbWgMSExgTEgGgoABvbgMlJhcIBwGEhAB+fQQbGh0AAAM6OgC1tQCysgFIRwsNCz8AAABEQwBMTAsWFSsaGgGBgAC2tgB+fgIgHxQiIgQlJRQqKhojIhUdHBIcHAQlJRQsLB4jIhgnJRxPTgAdHRArKyMhIBmDfmIAAADk5ADj4wCjowCGhQD09AD//wD9/QDd3QCHhwC6ugD7+wD8/ADW1gDS0gAAAADnl2gqAAAAgHRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACMCwBHEoETEcCRSQBB1sgGhkbbA0BNzcIBj6SvbuLNggJPTYBARpRI1Dk3UQoWRsBF87EETDv6yoc2dYZAmz09WwCBoaHBznl8OQ2L8XRwysZrt+pGAJjnmIBAVb1qlYAAAABYktHRACIBR1IAAAAB3RJTUUH5QwPFRIwUw78IgAAANRJREFUGNNjYGBgYGRiYGBmYWBgZWOAABUGdgZVNQYOTnUQj4ubR0NTi1dbh09XT5+fn4HBQEDQ0MhYyMRUyMzcQlhElMHSytrG1s7ewdHJ2cXVzd2DwdPL28fXr6Gxqdk/IDAoOIRBTJwhNKyltbWtvSM8QkJSCmisdGRUKwh0RsfIQKyNjesCCbTEJ0DdkZiU3N3a2p2SmgYVEEjP6Glt7c3MkoUKMMhl5+Tm5uXLM8BBQWFRUXEJgs9QWlZeXlGJJFBVXVNTW4ckoKBYX6+kDGYCAP4LMfPqfXhdAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjQ4LTAzOjAwf0AOeAAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODo0OC0wMzowMA4dtsQAAAAASUVORK5CYII=)"""";
+
+const char light_off[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABp1BMVEUAAAA0MzItLCtFQ0BAPjsPDw8hIiABAQOcjHMmJSSikHMFBQX////FxccODg4PDg/e2+FNTEoHBwcBAgAYFxjPzdE+PT1QTlIhHyEBAQEnJycaGhk3NzYLDQofHh4qKSkWFRUaGRktMCYQEBAKCgoMDAwTExIaGBkgIB8WFRYdGxxQT0wKCgkJCAgREBEGBQULCgoWFhYWFRYkISRHRkUODQ0ICAgODQ0SEBEWFhYvLi48PDwzMzMoKCgPDw8ZFxkZGRgUExMXFhbCv8RJSEYJCQkICAgSEhIbGhpISEg0NDQWFRYVFRUUExQaGRrKx8wIBwc7OjouLi4SExMKCglPT084ODgdHR8EBARBQUFAQEAbGhwAAAAdHRxZWVlZWVkpKCkiHyEAAAAiISErKysgICAODg0/Pz9bWlpaWlo/Pz8ZGBkTExIbGxsgICAbGhoXFhYQEA8cHBwlJSQkJCQcHBwhHyApKCcWFhYmJiYmJSUcGxxva2wAAABxcXFxcHBRUVFCQkJ5eXl/f39+fn59fX1tbW1cXFx8fHxqaWmAgIBoaGgAAAAU5oS+AAAAfnRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAjAsARxKBExHAkUkAQdbIBoZG2wNATc3CAY+kr27izYICT02AQEaUSNQ5N1EKFkbARfOxBEw7+sqHNnWGQJs9PVsAgaGhwc55fDw5DYvxdHDKxmu39+pGAJjnp5iAQHIT7PPAAAAAWJLR0QAiAUdSAAAAAd0SU1FB+UMDxUSCHsMRLwAAADTSURBVBjTY2BgYGBkYgADZhYIzSDPwMqgoMjAxq4E4nFwcCirqDKqqXNqaGpxcTEwaDNw6+jq8egb8BoaGfPxCzCYmJqZW1haWdvY2tk7ODo5M7i4url7eNbVNzR6efv4+vkzCAoxBAQ2Nbe0tjUGBQuLiAKNFQsJbW5taWluDwsXh1gbEdnR0tra0hQVDXVHTGwcUEVrfEIiVIAhKbmzq6s7JVUCJiCZlp6RmZUtxQAHObl5efkFCD5DYVFxSWkZkkB5RWVVdQ2SgLRMba2sHJgJAF1JL018Y5qxAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjA4LTAzOjAw+woAggAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODowOC0wMzowMIpXuD4AAAAASUVORK5CYII=)"""";
 
 const char html_footer[] PROGMEM = R""""(
 </body>
 </html>
+)"""";
+
+const char html_main[] = R""""(
+<div id='outer'>
+<div class='inner'><p class='deg_btn'>HTMON</p></div>
+<canvas id='canvas' width='600' height='200'></canvas>
+<div class='inner'><a href='/light' class='deg_btn'>DEHUMIDIFY</a>
+<a href='/update' class='deg_btn'>UPDATE</a></div>
+</div>
 )"""";
 
 const char js_script[] = R""""(
@@ -182,6 +199,15 @@ void send_html(const char *h)
 {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send_P(200, "text/html", html_header);
+  if (light_state)
+  {
+    server.sendContent_P(light_off);
+  }
+  else
+  {
+    server.sendContent_P(light_on);
+  }
+  server.sendContent_P(html_header2);
   server.sendContent(h);
   server.sendContent_P(html_footer);
 }
@@ -194,7 +220,7 @@ void handle_404()
 void handle_root()
 {
   String s;
-  s = "<div><canvas id='canvas' width='600' height='200'></canvas></div>";
+  s = String(html_main);
   s += "<script>";
   s += generate_data();
   s += js_script;
@@ -213,7 +239,7 @@ void handle_light()
 {
   light_state ^= 1;
   digitalWrite(RELAY_PIN, light_state);
-  server.send(200, "text/txt", String(light_state,0));
+  server.send(200, "text/html", "<meta http-equiv='refresh' content='0; url=/' />");
 }
 
 void setup()
