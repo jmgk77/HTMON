@@ -51,12 +51,10 @@ const char html_header[] PROGMEM = R""""(<!DOCTYPE html>
 <meta charset='UTF-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <meta http-equiv='cache-control' content='no-cache, no-store, must-revalidate'>
-<title>HTMON</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <link rel='shortcut icon' href=')"""";
 
-const char html_header2[] PROGMEM = R""""('/>
-<style>
+const char html_header2[] PROGMEM = R""""(<style>
 .deg_btn{position:relative;display:inline-block;text-decoration:none;padding:0 30px;font-size:19px;height:40px;line-height:40px!;vertical-align:middle;background:#51587b;font-size:20px;color:#fff;transition:.4s}.deg_btn:before{position:absolute;content:'';left:0;top:0;width:0;height:0;border:none;border-left:solid 21px #fff;border-bottom:solid 41px transparent;z-index:1;transition:.4s}.deg_btn:after{position:absolute;content:'';right:0;top:0;width:0;height:0;border:none;border-left:solid 21px transparent;border-bottom:solid 41px #fff;z-index:1;transition:.4s}.deg_btn:hover:after,.deg_btn:hover:before{border-left-width:25px}.deg_btn:hover{background:#2c3148}#outer{width:100%;text-align:center}.inner{display:inline-block}a
 </style>
 </head>
@@ -201,7 +199,7 @@ String generate_data()
   return s;
 }
 
-void send_html(const char *h)
+void send_html(const char *z)
 {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send_P(200, "text/html", html_header);
@@ -213,8 +211,10 @@ void send_html(const char *h)
   {
     server.sendContent_P(light_on);
   }
+  String s = "'/><title>HTMON - (" + String(t, 2) + "° " + String(h, 2) + "%)</title>";
+  server.sendContent(s);
   server.sendContent_P(html_header2);
-  server.sendContent(h);
+  server.sendContent(z);
   server.sendContent_P(html_footer);
 }
 
