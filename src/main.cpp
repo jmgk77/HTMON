@@ -17,12 +17,27 @@
 
 #include <SSD1306Wire.h>
 #include <WEMOS_SHT3X.h>
+#include <ESP_EEPROM.h>
 
 #include "logo.h"
 
 #define READ_INTERVAL 1
 
 #define RELAY_PIN D3
+
+#define EEPROM_SIGNATURE 'J'
+#define LIGHT_ON 0
+#define LIGHT_OFF 1
+
+struct eeprom_data
+{
+  char sign = EEPROM_SIGNATURE;
+  bool default_light_state = LIGHT_ON;
+  float max_temp = 50;
+  float min_temp = 5;
+  float max_humity = 50;
+  float min_humity = 5;
+} htmon_eeprom, htmon_default_eeprom;
 
 SSD1306Wire display(0x3c, SDA, SCL);
 SHT3X sht30(0x44);
@@ -51,11 +66,10 @@ const char html_header[] PROGMEM = R""""(<!DOCTYPE html>
 <meta charset='UTF-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <meta http-equiv='cache-control' content='no-cache, no-store, must-revalidate'>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
 <link rel='shortcut icon' href=')"""";
 
 const char html_header2[] PROGMEM = R""""(<style>
-.deg_btn{position:relative;display:inline-block;text-decoration:none;padding:0 30px;font-size:19px;height:40px;line-height:40px!;vertical-align:middle;background:#51587b;font-size:20px;color:#fff;transition:.4s}.deg_btn:before{position:absolute;content:'';left:0;top:0;width:0;height:0;border:none;border-left:solid 21px #fff;border-bottom:solid 41px transparent;z-index:1;transition:.4s}.deg_btn:after{position:absolute;content:'';right:0;top:0;width:0;height:0;border:none;border-left:solid 21px transparent;border-bottom:solid 41px #fff;z-index:1;transition:.4s}.deg_btn:hover:after,.deg_btn:hover:before{border-left-width:25px}.deg_btn:hover{background:#2c3148}#outer{width:100%;text-align:center}.inner{display:inline-block}a
 </style>
 </head>
 <body>)"""";
@@ -70,11 +84,52 @@ const char html_footer[] PROGMEM = R""""(
 )"""";
 
 const char html_main[] = R""""(
-<div id='outer'>
-<div class='inner'><p class='deg_btn'>HTMON</p></div>
+<div>
+<div>
+<p>HTMON</p>
+</div>
 <canvas id='canvas' width='600' height='200'></canvas>
-<div class='inner'><a href='/light' class='deg_btn'>DEHUMIDIFY</a>
-<a href='/update' class='deg_btn'>UPDATE</a></div>
+<div>
+<a href='/light'>DEHUMIDIFY</a>
+<a href='/config' >CONFIG</a>
+</div>
+</div>
+)"""";
+
+const char html_config[] = R""""(
+<div>
+<p>HTMON</p>
+</div>
+<br><br>
+<div>
+<form action='/config' method='GET'>
+<input type='hidden' name='s' value='1'>
+<label for='light_state'>Default state:</label>
+<input type='checkbox' name='light_state' value='1' %s><br>
+<label for='maxt'>Max temperature:</label>
+<input type='text' name='maxt' value='%f'><br>
+<label for='mint'>Min temperature:</label>
+<input type='text' name='mint' value='%f'><br>
+<label for='maxh'>Max humidity:</label>
+<input type='text' name='maxh' value='%f'><br>
+<label for='minh'>Min humidity:</label>
+<input type='text' name='minh' value='%f'><br>
+<input type='submit' value='SAVE'>
+</form>
+<form action='/' method='POST'>
+<input type='submit' value='CANCEL'>
+</form>
+<form action='/update' method='POST' enctype='multipart/form-data'>
+<label for='firmware'>Update Firmware:</label>
+<input type='file' accept='.bin,.bin.gz' name='firmware'>
+<input type='submit' value='Atualizar'>
+</form>
+<form action='/reboot' method='POST'>
+<input type='submit' value='REBOOT'>
+</form>
+<form action='/reset' method='POST'>
+<input type='submit' value='RESET'>
+</form>
 </div>
 )"""";
 
@@ -234,6 +289,50 @@ void handle_root()
   send_html(s.c_str());
 }
 
+void handle_config()
+{
+  if (server.hasArg("s"))
+  {
+    //get data
+    if (server.hasArg("light_state"))
+    {
+      htmon_eeprom.default_light_state = 0;
+    }
+    else
+    {
+      htmon_eeprom.default_light_state = 1;
+    }
+    if (server.hasArg("maxt"))
+    {
+      htmon_eeprom.max_temp = server.arg("maxt").toFloat();
+    }
+    if (server.hasArg("mint"))
+    {
+      htmon_eeprom.min_temp = server.arg("mint").toFloat();
+    }
+    if (server.hasArg("maxh"))
+    {
+      htmon_eeprom.max_humity = server.arg("maxh").toFloat();
+    }
+    if (server.hasArg("minh"))
+    {
+      htmon_eeprom.min_humity = server.arg("minh").toFloat();
+    }
+    //save data
+    EEPROM.put(0, htmon_eeprom);
+    EEPROM.commit();
+
+    server.send(200, "text/html", "<meta http-equiv='refresh' content='0; url=/config' />");
+  }
+  else
+  {
+    char *s = (char *)malloc(2048);
+    snprintf(s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked", htmon_eeprom.max_temp, htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity);
+    send_html(s);
+    free(s);
+  }
+}
+
 void handle_now()
 {
   String s;
@@ -248,14 +347,44 @@ void handle_light()
   server.send(200, "text/html", "<meta http-equiv='refresh' content='0; url=/' />");
 }
 
+void handle_reboot()
+{
+  server.send(200, "text/html", "<meta http-equiv='refresh' content='30; url=/' />");
+  delay(1000);
+  ESP.restart();
+  delay(2000);
+}
+
+void handle_reset()
+{
+  //erase eeprom
+  EEPROM.put(0, htmon_default_eeprom);
+  EEPROM.commit();
+  //reset wifi
+  wm.resetSettings();
+  handle_reboot();
+}
+
 void setup()
 {
+#ifdef DEBUG
+  Serial.begin(115200);
+#endif
+
+  EEPROM.begin(sizeof(eeprom_data));
+
+  eeprom_data temp_eeprom;
+  EEPROM.get(0, temp_eeprom);
+  if (temp_eeprom.sign == EEPROM_SIGNATURE)
+  {
+    EEPROM.get(0, htmon_eeprom);
+  }
+
   pinMode(RELAY_PIN, OUTPUT);
+  light_state = htmon_eeprom.default_light_state;
   digitalWrite(RELAY_PIN, light_state);
 
   WiFi.mode(WIFI_STA);
-
-  Serial.begin(115200);
   delay(10);
 
   //wm.setDebugOutput(false);
@@ -276,8 +405,11 @@ void setup()
   //install www handlers
   server.onNotFound(handle_404);
   server.on("/", handle_root);
+  server.on("/config", handle_config);
   server.on("/now", handle_now);
   server.on("/light", handle_light);
+  server.on("/reboot", handle_reboot);
+  server.on("/reset", handle_reset);
 
   server.begin();
 
