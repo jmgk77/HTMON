@@ -62,11 +62,11 @@ int light_state = 0;
 const char html_header[] PROGMEM = R""""(<!DOCTYPE html>
 <html lang='pt-br'>
 <head>
-<meta http-equiv='refresh' content='60'>
 <meta charset='UTF-8'>
 <meta name='viewport' content='width=device-width, initial-scale=1'>
 <meta http-equiv='cache-control' content='no-cache, no-store, must-revalidate'>
 <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
+<link rel='stylesheet' href='https://unpkg.com/7.css'>
 <link rel='shortcut icon' href=')"""";
 
 const char html_header2[] PROGMEM = R""""(<style>
@@ -79,52 +79,66 @@ const char light_on[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhE
 const char light_off[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABp1BMVEUAAAA0MzItLCtFQ0BAPjsPDw8hIiABAQOcjHMmJSSikHMFBQX////FxccODg4PDg/e2+FNTEoHBwcBAgAYFxjPzdE+PT1QTlIhHyEBAQEnJycaGhk3NzYLDQofHh4qKSkWFRUaGRktMCYQEBAKCgoMDAwTExIaGBkgIB8WFRYdGxxQT0wKCgkJCAgREBEGBQULCgoWFhYWFRYkISRHRkUODQ0ICAgODQ0SEBEWFhYvLi48PDwzMzMoKCgPDw8ZFxkZGRgUExMXFhbCv8RJSEYJCQkICAgSEhIbGhpISEg0NDQWFRYVFRUUExQaGRrKx8wIBwc7OjouLi4SExMKCglPT084ODgdHR8EBARBQUFAQEAbGhwAAAAdHRxZWVlZWVkpKCkiHyEAAAAiISErKysgICAODg0/Pz9bWlpaWlo/Pz8ZGBkTExIbGxsgICAbGhoXFhYQEA8cHBwlJSQkJCQcHBwhHyApKCcWFhYmJiYmJSUcGxxva2wAAABxcXFxcHBRUVFCQkJ5eXl/f39+fn59fX1tbW1cXFx8fHxqaWmAgIBoaGgAAAAU5oS+AAAAfnRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAjAsARxKBExHAkUkAQdbIBoZG2wNATc3CAY+kr27izYICT02AQEaUSNQ5N1EKFkbARfOxBEw7+sqHNnWGQJs9PVsAgaGhwc55fDw5DYvxdHDKxmu39+pGAJjnp5iAQHIT7PPAAAAAWJLR0QAiAUdSAAAAAd0SU1FB+UMDxUSCHsMRLwAAADTSURBVBjTY2BgYGBkYgADZhYIzSDPwMqgoMjAxq4E4nFwcCirqDKqqXNqaGpxcTEwaDNw6+jq8egb8BoaGfPxCzCYmJqZW1haWdvY2tk7ODo5M7i4url7eNbVNzR6efv4+vkzCAoxBAQ2Nbe0tjUGBQuLiAKNFQsJbW5taWluDwsXh1gbEdnR0tra0hQVDXVHTGwcUEVrfEIiVIAhKbmzq6s7JVUCJiCZlp6RmZUtxQAHObl5efkFCD5DYVFxSWkZkkB5RWVVdQ2SgLRMba2sHJgJAF1JL018Y5qxAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjA4LTAzOjAw+woAggAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODowOC0wMzowMIpXuD4AAAAASUVORK5CYII=)"""";
 
 const char html_footer[] PROGMEM = R""""(
+<div class='status-bar' style='margin:0 auto'>
+<p class='status-bar-field'>Temperature %s °</p>
+<p class='status-bar-field'>Humidity %s %%</p>
+<p class='status-bar-field'>Dehumidify %s</p>
+</div>
+</div>
 </body>
 </html>
 )"""";
 
 const char html_main[] = R""""(
-<div>
-<div>
-<p>HTMON</p>
+<div class='window' style='margin:0 auto;width: 90%%'>
+<div class='title-bar'>
+<div class='title-bar-text'>HTMON</div>
+<div class='title-bar-controls'>
+<button aria-label='Minimize'></button>
+<button aria-label='Maximize'></button>
+<button aria-label='Close'></button>
 </div>
+</div>
+<div class='window-body'>
 <canvas id='canvas' width='600' height='200'></canvas>
 <div>
-<a href='/light'>DEHUMIDIFY</a>
-<a href='/config' >CONFIG</a>
+<button onclick='location.href="/light";'>DEHUMIDIFY</button>
+<button onclick='location.href="/config";'>CONFIG</button>
 </div>
 </div>
 )"""";
 
 const char html_config[] = R""""(
-<div>
-<p>HTMON</p>
+<div class='window' style='margin:0 auto;width: 90%%'>
+<div class='title-bar'>
+<div class='title-bar-text'>HTMON</div>
+<div class='title-bar-controls'>
+<button aria-label='Minimize'></button>
+<button aria-label='Maximize'></button>
+<button aria-label='Close' onclick='location.href="/";'></button>
 </div>
-<br><br>
-<div>
+</div>
+<div class='window-body'>
 <form action='/config' method='GET'>
-<input type='hidden' name='s' value='1'>
-<label for='light_state'>Default state:</label>
-<input type='checkbox' name='light_state' value='1' %s><br>
+<input type='checkbox' id='light_state' name='light_state' value='1' %s>
+<label for='light_state'>Default state:</label><br>
 <label for='maxt'>Max temperature:</label>
-<input type='text' name='maxt' value='%f'><br>
+<input type='text' name='maxt' value='%.2f'><br>
 <label for='mint'>Min temperature:</label>
-<input type='text' name='mint' value='%f'><br>
+<input type='text' name='mint' value='%.2f'><br>
 <label for='maxh'>Max humidity:</label>
-<input type='text' name='maxh' value='%f'><br>
+<input type='text' name='maxh' value='%.2f'><br>
 <label for='minh'>Min humidity:</label>
-<input type='text' name='minh' value='%f'><br>
+<input type='text' name='minh' value='%.2f'><br>
+<input type='hidden' name='s' value='1'>
 <input type='submit' value='SAVE'>
-</form>
-<form action='/' method='POST'>
-<input type='submit' value='CANCEL'>
 </form>
 <form action='/update' method='POST' enctype='multipart/form-data'>
 <label for='firmware'>Update Firmware:</label>
 <input type='file' accept='.bin,.bin.gz' name='firmware'>
-<input type='submit' value='Atualizar'>
+<input type='submit' value='UPDATE'>
 </form>
-<form action='/reboot' method='POST'>
+<form action='/reboot' method='POST' style='float: left' >
 <input type='submit' value='REBOOT'>
 </form>
 <form action='/reset' method='POST'>
@@ -254,7 +268,7 @@ String generate_data()
   return s;
 }
 
-void send_html(const char *z)
+void send_html(const char *z, bool refresh = false)
 {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send_P(200, "text/html", html_header);
@@ -268,9 +282,16 @@ void send_html(const char *z)
   }
   String s = "'/><title>HTMON - (" + String(t, 2) + "° " + String(h, 2) + "%)</title>";
   server.sendContent(s);
+  if (refresh)
+  {
+    server.sendContent("<meta http-equiv='refresh' content='60'>");
+  }
   server.sendContent_P(html_header2);
   server.sendContent(z);
-  server.sendContent_P(html_footer);
+  char *b = (char *)malloc(512);
+  snprintf(b, 512, html_footer, String(t, 2).c_str(), String(h, 2).c_str(), light_state ? "OFF" : "ON");
+  server.sendContent(b);
+  free(b);
 }
 
 void handle_404()
@@ -286,7 +307,7 @@ void handle_root()
   s += generate_data();
   s += js_script;
   s += "</script>";
-  send_html(s.c_str());
+  send_html(s.c_str(), true);
 }
 
 void handle_config()
