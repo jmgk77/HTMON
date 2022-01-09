@@ -15,7 +15,14 @@
 #include <ESP8266HTTPUpdateServer.h>
 #include <ESP8266mDNS.h>
 
+#define USE_WIRE
+
+#ifdef USE_WIRE
 #include <SSD1306Wire.h>
+#else
+#include <brzo_i2c.h>
+#include <SSD1306Brzo.h>
+#endif
 #include <WEMOS_SHT3X.h>
 #include <ESP_EEPROM.h>
 
@@ -39,7 +46,12 @@ struct eeprom_data
   float min_humity = 5;
 } htmon_eeprom, htmon_default_eeprom;
 
+#ifdef USE_WIRE
 SSD1306Wire display(0x3c, SDA, SCL);
+#else
+SSD1306Brzo display(0x3c, SDA, SCL);
+#endif
+
 SHT3X sht30(0x44);
 
 WiFiManager wm;
