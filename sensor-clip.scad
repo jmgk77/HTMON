@@ -33,5 +33,5 @@ cube([ 2, 12, 10 ]);
 translate([ -2, 5, 2 ]) rotate([ 0, 90, 0 ]) cylinder(4, 1.4, 1.4);
 
 //tabs
-translate([ -1, 0, 9.9 ]) cube([ 3, 1, 1 ]);
-translate([ -1, 5, 9.9 ]) cube([ 3, 1, 1 ]);
+translate([ -3, 0, 9.9 ]) cube([ 5, 3, 1 ]);
+translate([ -3, 5, 9.9 ]) cube([ 5, 3, 1 ]);
