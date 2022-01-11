@@ -18,6 +18,7 @@
 #include <ESP8266mDNS.h>
 
 #define USE_WIRE
+#define UI_NOINDICATOR
 
 #ifdef USE_WIRE
 #include <SSD1306Wire.h>
@@ -25,6 +26,7 @@
 #include <brzo_i2c.h>
 #include <SSD1306Brzo.h>
 #endif
+#include <OLEDDisplayUi.h>
 #include <WEMOS_SHT3X.h>
 #include <ESP_EEPROM.h>
 
@@ -54,6 +56,8 @@ SSD1306Wire display(0x3c, SDA, SCL);
 #else
 SSD1306Brzo display(0x3c, SDA, SCL);
 #endif
+
+OLEDDisplayUi ui(&display);
 
 SHT3X sht30(0x44);
 
@@ -134,7 +138,7 @@ const char html_config[] = R""""(
 </div>
 </div>
 <div class='window-body'>
-<form action='/config' method='GET'>
+<form action='/config' method='POST'>
 <input type='checkbox' id='light_state' name='light_state' value='1' %s>
 <label for='light_state'>Default light state:</label><br>
 <input type='checkbox' id='automatic' name='automatic' value='1' %s>
@@ -416,6 +420,65 @@ void handle_reset()
   handle_reboot();
 }
 
+void draw_logo(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  //logo
+  display->drawXbm(x + ((128 - logo_width) / 2), y + ((64 - logo_height) / 2), logo_width, logo_height, logo);
+  display->display();
+}
+
+void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  //info
+  display->drawRect(x + 0, y + 0, 128, 64);
+  display->setTextAlignment(TEXT_ALIGN_LEFT);
+  display->drawString(x + 10, y + 15, "Temperatura:");
+  display->drawString(x + 10, y + 40, "Umidade:");
+  display->setTextAlignment(TEXT_ALIGN_RIGHT);
+  display->drawString(x + 128 - 10, y + 15, String(t) + "°");
+  display->drawString(x + 128 - 10, y + 40, String(h) + "%");
+  display->display();
+}
+
+void draw_h_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  //humidity
+  unsigned int x_max = display->getWidth();
+  unsigned int y_max = display->getHeight();
+  display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
+  display->drawString(x + (x_max / 2), y + y_max - 10, "HUMIDITY");
+  unsigned int t_index = (th_index < x_max) ? 0 : (th_index - x_max);
+  for (unsigned int xx = 0; xx < x_max; xx++)
+  {
+    unsigned int yy = (unsigned int)h_table[t_index + xx];
+    yy = (yy < 0) ? 0 : (yy > y_max) ? y_max
+                                     : yy;
+    display->setPixel(x + xx, y + y_max - yy);
+  }
+  display->display();
+}
+
+void draw_t_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
+{
+  //temperature
+  unsigned int x_max = display->getWidth();
+  unsigned int y_max = display->getHeight();
+  display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
+  display->drawString(x + (x_max / 2), y + y_max - 10, "TEMPERATURE");
+  unsigned int t_index = (th_index < x_max) ? 0 : (th_index - x_max);
+  for (unsigned int xx = 0; xx < x_max; xx++)
+  {
+    unsigned int yy = (unsigned int)t_table[t_index + xx];
+    yy = (yy < 0) ? 0 : (yy > y_max) ? y_max
+                                     : yy;
+    display->setPixel(x + xx, y + y_max - yy);
+  }
+  display->display();
+}
+
+FrameCallback frames[] = {draw_logo, draw_info, draw_h_graph, draw_t_graph};
+int frameCount = 4;
+
 void setup()
 {
 #ifdef DEBUG
@@ -490,83 +553,87 @@ void setup()
 
   lastMillis = millis() - (READ_INTERVAL * 60 * 1000UL);
 
-  display.init();
+  //
+  ui.setTargetFPS(30);
+  ui.setTimePerFrame(15000);
+//
+#ifdef UI_NOINDICATOR
+  ui.disableAllIndicators();
+#else
+  ui.setActiveSymbol(ANIMATION_activeSymbol);
+  ui.setInactiveSymbol(ANIMATION_inactiveSymbol);
+  ui.setIndicatorPosition(BOTTOM);
+  ui.setIndicatorDirection(LEFT_RIGHT);
+#endif
+  //
+  ui.setFrameAnimation(SLIDE_UP);
+  ui.setFrames(frames, frameCount);
+  ui.init();
   display.flipScreenVertically();
-  display.drawXbm((128 - logo_width) / 2, (64 - logo_height) / 2, logo_width, logo_height, logo);
-  display.display();
-  delay(1000 * 3);
+  display.setFont(ArialMT_Plain_10);
 }
 
 void loop()
 {
-  server.handleClient();
-  MDNS.update();
+  int remainingTimeBudget = ui.update();
 
-  if (millis() - lastMillis >= (READ_INTERVAL * 60 * 1000UL))
+  if (remainingTimeBudget > 0)
   {
-    lastMillis = millis();
-    read_th();
-  }
+    server.handleClient();
+    MDNS.update();
 
-  //thermal protection
-  if (t >= THERMAL_PROTECTION)
-  {
-    //hang
-    while (1)
+    if (millis() - lastMillis >= (READ_INTERVAL * 60 * 1000UL))
     {
-      //turn of heating
-      light_state = LIGHT_OFF;
-      //###show msg
-    };
-  }
-
-  //automatic control...
-  if (htmon_eeprom.automatic_control)
-  {
-    //too hot, off
-    if (t > htmon_eeprom.max_temp)
-    {
-      light_state = LIGHT_OFF;
+      lastMillis = millis();
+      read_th();
     }
-    else
+
+    //thermal protection
+    if (t >= THERMAL_PROTECTION)
     {
-      //too dry, off
-      if (h < htmon_eeprom.min_humity)
+      //hang
+      while (1)
+      {
+        //turn of heating
+        light_state = LIGHT_OFF;
+        //###show msg
+      };
+    }
+
+    //automatic control...
+    if (htmon_eeprom.automatic_control)
+    {
+      //too hot, off
+      if (t > htmon_eeprom.max_temp)
       {
         light_state = LIGHT_OFF;
       }
       else
       {
-        //too wet, on
-        if (h > htmon_eeprom.max_humity)
+        //too dry, off
+        if (h < htmon_eeprom.min_humity)
         {
-          light_state = LIGHT_ON;
+          light_state = LIGHT_OFF;
         }
         else
         {
-          //too cold (?), on
-          if (t < htmon_eeprom.min_temp)
+          //too wet, on
+          if (h > htmon_eeprom.max_humity)
           {
             light_state = LIGHT_ON;
           }
+          else
+          {
+            //too cold (?), on
+            if (t < htmon_eeprom.min_temp)
+            {
+              light_state = LIGHT_ON;
+            }
+          }
         }
+        //apply
+        digitalWrite(RELAY_PIN, light_state);
       }
-      //apply
-      digitalWrite(RELAY_PIN, light_state);
     }
   }
-
-  display.clear();
-
-  display.setFont(ArialMT_Plain_10);
-  display.drawRect(0, 0, 128, 64);
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(10, 15, "Temperatura:");
-  display.drawString(10, 40, "Umidade:");
-
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  display.drawString(128 - 10, 15, String(t) + "°");
-  display.drawString(128 - 10, 40, String(h) + "%");
-
-  display.display();
 }
