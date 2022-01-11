@@ -5,6 +5,8 @@
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
 #endif
 
+#define THERMAL_PROTECTION 60
+
 //#define DEBUG
 
 #include <Arduino.h>
@@ -40,6 +42,7 @@ struct eeprom_data
 {
   char sign = EEPROM_SIGNATURE;
   bool default_light_state = LIGHT_ON;
+  bool automatic_control = false;
   float max_temp = 50;
   float min_temp = 5;
   float max_humity = 50;
@@ -114,7 +117,7 @@ const char html_main[] = R""""(
 <div class='window-body'>
 <canvas id='canvas' width='600' height='200'></canvas>
 <div>
-<button onclick='location.href="/light";'>DEHUMIDIFY</button>
+<button id='light' onclick='location.href="/light";'>DEHUMIDIFY</button>
 <button onclick='location.href="/config";'>CONFIG</button>
 </div>
 </div>
@@ -133,14 +136,16 @@ const char html_config[] = R""""(
 <div class='window-body'>
 <form action='/config' method='GET'>
 <input type='checkbox' id='light_state' name='light_state' value='1' %s>
-<label for='light_state'>Default state:</label><br>
-<label for='maxt'>Max temperature:</label>
+<label for='light_state'>Default light state:</label><br>
+<input type='checkbox' id='automatic' name='automatic' value='1' %s>
+<label for='automatic'>Automatic light control:</label><br>
+<label for='maxt'>Turn off temperature (Max):</label>
 <input type='text' name='maxt' value='%.2f'><br>
-<label for='mint'>Min temperature:</label>
+<label for='mint'>Turn on temperature (Min):</label>
 <input type='text' name='mint' value='%.2f'><br>
-<label for='maxh'>Max humidity:</label>
+<label for='maxh'>Turn on humidity (Max):</label>
 <input type='text' name='maxh' value='%.2f'><br>
-<label for='minh'>Min humidity:</label>
+<label for='minh'>Turn off humidity (Min):</label>
 <input type='text' name='minh' value='%.2f'><br>
 <input type='hidden' name='s' value='1'>
 <input type='submit' value='SAVE'>
@@ -316,6 +321,11 @@ void handle_root()
   String s;
   s = String(html_main);
   s += "<script>";
+  //if automatic control enabled, disable manual button
+  if (htmon_eeprom.automatic_control)
+  {
+    s += "var b=document.getElementById('light');b.disabled=true;b.style.color='#aaa';";
+  }
   s += generate_data();
   s += js_script;
   s += "</script>";
@@ -334,6 +344,14 @@ void handle_config()
     else
     {
       htmon_eeprom.default_light_state = 1;
+    }
+    if (server.hasArg("automatic"))
+    {
+      htmon_eeprom.automatic_control = 1;
+    }
+    else
+    {
+      htmon_eeprom.automatic_control = 0;
     }
     if (server.hasArg("maxt"))
     {
@@ -360,7 +378,7 @@ void handle_config()
   else
   {
     char *s = (char *)malloc(2048);
-    snprintf(s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked", htmon_eeprom.max_temp, htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity);
+    snprintf(s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked", htmon_eeprom.automatic_control ? "checked" : "", htmon_eeprom.max_temp, htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity);
     send_html(s);
     free(s);
   }
@@ -488,6 +506,54 @@ void loop()
   {
     lastMillis = millis();
     read_th();
+  }
+
+  //thermal protection
+  if (t >= THERMAL_PROTECTION)
+  {
+    //hang
+    while (1)
+    {
+      //turn of heating
+      light_state = LIGHT_OFF;
+      //###show msg
+    };
+  }
+
+  //automatic control...
+  if (htmon_eeprom.automatic_control)
+  {
+    //too hot, off
+    if (t > htmon_eeprom.max_temp)
+    {
+      light_state = LIGHT_OFF;
+    }
+    else
+    {
+      //too dry, off
+      if (h < htmon_eeprom.min_humity)
+      {
+        light_state = LIGHT_OFF;
+      }
+      else
+      {
+        //too wet, on
+        if (h > htmon_eeprom.max_humity)
+        {
+          light_state = LIGHT_ON;
+        }
+        else
+        {
+          //too cold (?), on
+          if (t < htmon_eeprom.min_temp)
+          {
+            light_state = LIGHT_ON;
+          }
+        }
+      }
+      //apply
+      digitalWrite(RELAY_PIN, light_state);
+    }
   }
 
   display.clear();
