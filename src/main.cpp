@@ -15,7 +15,11 @@
 #include <WiFiManager.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266HTTPUpdateServer.h>
+
 #include <ESP8266mDNS.h>
+#include <ESP8266NetBIOS.h>
+#include <ESP8266LLMNR.h>
+#include <SSDP_esp8266.h>
 
 #define USE_WIRE
 
@@ -515,12 +519,24 @@ void setup()
   server.on("/light", handle_light);
   server.on("/reboot", handle_reboot);
   server.on("/reset", handle_reset);
-
+  server.on("/description.xml", HTTP_GET, []()
+            { SSDP_esp8266.schema(server.client()); });
   server.begin();
 
   //discovery protocols
   MDNS.begin(device_name);
   MDNS.addService("http", "tcp", 80);
+  NBNS.begin(device_name.c_str());
+  LLMNR.begin(device_name.c_str());
+  SSDP_esp8266.setName(device_name);
+  SSDP_esp8266.setDeviceType("urn:schemas-upnp-org:device:" + device_name + ":1");
+  SSDP_esp8266.setSchemaURL("description.xml");
+  SSDP_esp8266.setSerialNumber(ESP.getChipId());
+  SSDP_esp8266.setURL("/");
+  SSDP_esp8266.setModelName(device_name);
+  SSDP_esp8266.setModelNumber("1");
+  SSDP_esp8266.setManufacturer("JMGK");
+  SSDP_esp8266.setManufacturerURL("http://www.jmgk.com.br/");
 
   //get internet time
   configTime("<-03>3", "pool.ntp.org");
@@ -571,6 +587,7 @@ void loop()
   {
     server.handleClient();
     MDNS.update();
+    SSDP_esp8266.handleClient();
 
     if (millis() - lastMillis >= (READ_INTERVAL * 60 * 1000UL))
     {
