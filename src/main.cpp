@@ -1,5 +1,5 @@
 //HTMON
-//(c) JMGK 2021
+//(c) JMGK 2021-2022
 
 #if !defined(ESP8266)
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
@@ -18,7 +18,6 @@
 #include <ESP8266mDNS.h>
 
 #define USE_WIRE
-#define UI_NOINDICATOR
 
 #ifdef USE_WIRE
 #include <SSD1306Wire.h>
@@ -31,6 +30,7 @@
 #include <ESP_EEPROM.h>
 
 #include "logo.h"
+#include "nuclear.h"
 
 #define READ_INTERVAL 1
 
@@ -325,7 +325,7 @@ void handle_root()
   String s;
   s = String(html_main);
   s += "<script>";
-  //if automatic control enabled, disable manual button
+  //if automatic control enabled, disable manual button (via JS)
   if (htmon_eeprom.automatic_control)
   {
     s += "var b=document.getElementById('light');b.disabled=true;b.style.color='#aaa';";
@@ -405,9 +405,9 @@ void handle_light()
 void handle_reboot()
 {
   server.send(200, "text/html", "<meta http-equiv='refresh' content='30; url=/' />");
-  delay(1000);
+  delay(1 * 1000);
   ESP.restart();
-  delay(2000);
+  delay(2 * 1000);
 }
 
 void handle_reset()
@@ -418,13 +418,6 @@ void handle_reset()
   //reset wifi
   wm.resetSettings();
   handle_reboot();
-}
-
-void draw_logo(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
-{
-  //logo
-  display->drawXbm(x + ((128 - logo_width) / 2), y + ((64 - logo_height) / 2), logo_width, logo_height, logo);
-  display->display();
 }
 
 void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
@@ -443,17 +436,15 @@ void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16
 void draw_h_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
 {
   //humidity
-  unsigned int x_max = display->getWidth();
-  unsigned int y_max = display->getHeight();
   display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
-  display->drawString(x + (x_max / 2), y + y_max - 10, "HUMIDITY");
-  unsigned int t_index = (th_index < x_max) ? 0 : (th_index - x_max);
-  for (unsigned int xx = 0; xx < x_max; xx++)
+  display->drawString(x + (128 / 2), y + 64 - 5, "HUMIDITY");
+  unsigned int t_index = (th_index < 128) ? 0 : (th_index - 128);
+  for (unsigned int xx = 0; xx < 128; xx++)
   {
     unsigned int yy = (unsigned int)h_table[t_index + xx];
-    yy = (yy < 0) ? 0 : (yy > y_max) ? y_max
-                                     : yy;
-    display->setPixel(x + xx, y + y_max - yy);
+    yy = (yy < 0) ? 0 : (yy > 64) ? 64
+                                  : yy;
+    display->setPixel(x + xx, y + 64 - yy);
   }
   display->display();
 }
@@ -461,23 +452,21 @@ void draw_h_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, in
 void draw_t_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
 {
   //temperature
-  unsigned int x_max = display->getWidth();
-  unsigned int y_max = display->getHeight();
   display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
-  display->drawString(x + (x_max / 2), y + y_max - 10, "TEMPERATURE");
-  unsigned int t_index = (th_index < x_max) ? 0 : (th_index - x_max);
-  for (unsigned int xx = 0; xx < x_max; xx++)
+  display->drawString(x + (128 / 2), y + 64 - 5, "TEMPERATURE");
+  unsigned int t_index = (th_index < 128) ? 0 : (th_index - 128);
+  for (unsigned int xx = 0; xx < 128; xx++)
   {
     unsigned int yy = (unsigned int)t_table[t_index + xx];
-    yy = (yy < 0) ? 0 : (yy > y_max) ? y_max
-                                     : yy;
-    display->setPixel(x + xx, y + y_max - yy);
+    yy = (yy < 0) ? 0 : (yy > 64) ? 64
+                                  : yy;
+    display->setPixel(x + xx, y + 64 - yy);
   }
   display->display();
 }
 
-FrameCallback frames[] = {draw_logo, draw_info, draw_h_graph, draw_t_graph};
-int frameCount = 4;
+FrameCallback frames[] = {draw_info, draw_h_graph, draw_t_graph};
+int frameCount = 3;
 
 void setup()
 {
@@ -487,6 +476,7 @@ void setup()
 
   EEPROM.begin(sizeof(eeprom_data));
 
+  //if there's valid EEPROM config, load it
   eeprom_data temp_eeprom;
   EEPROM.get(0, temp_eeprom);
   if (temp_eeprom.sign == EEPROM_SIGNATURE)
@@ -494,6 +484,7 @@ void setup()
     EEPROM.get(0, htmon_eeprom);
   }
 
+  //apply default relay value
   pinMode(RELAY_PIN, OUTPUT);
   light_state = htmon_eeprom.default_light_state;
   digitalWrite(RELAY_PIN, light_state);
@@ -511,7 +502,7 @@ void setup()
   if (!wm.autoConnect(device_name.c_str()))
   {
     ESP.restart();
-    delay(1000);
+    delay(1 * 1000);
   }
 
   httpUpdater.setup(&server, "/update");
@@ -547,30 +538,29 @@ void setup()
   Serial.println(F("------------------------------------"));
 #endif
 
+  //init temperature and humidity tables
   memset(t_table, 0, sizeof(t_table));
   memset(h_table, 0, sizeof(h_table));
   th_index = 0;
 
   lastMillis = millis() - (READ_INTERVAL * 60 * 1000UL);
 
-  //
+  //FPS and time per frame
   ui.setTargetFPS(30);
-  ui.setTimePerFrame(15000);
-//
-#ifdef UI_NOINDICATOR
+  ui.setTimePerFrame(7 * 1000);
+  //no frame indicators
   ui.disableAllIndicators();
-#else
-  ui.setActiveSymbol(ANIMATION_activeSymbol);
-  ui.setInactiveSymbol(ANIMATION_inactiveSymbol);
-  ui.setIndicatorPosition(BOTTOM);
-  ui.setIndicatorDirection(LEFT_RIGHT);
-#endif
-  //
+  //set animation and frames
   ui.setFrameAnimation(SLIDE_UP);
   ui.setFrames(frames, frameCount);
   ui.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
+
+  //logo
+  display.drawXbm((128 - logo_width) / 2, (64 - logo_height) / 2, logo_width, logo_height, logo);
+  display.display();
+  delay(3 * 1000);
 }
 
 void loop()
@@ -591,12 +581,20 @@ void loop()
     //thermal protection
     if (t >= THERMAL_PROTECTION)
     {
+      //shutdown
+      ui.disableAutoTransition();
+      display.clear();
+      display.drawXbm((128 - nuclear_width) / 2, (64 - nuclear_height) / 2, nuclear_width, nuclear_height, nuclear);
+      display.setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
+      display.drawString(128 / 2, 64 - 5, "THERMAL SHUTDOWN");
+      display.display();
+      server.stop();
       //hang
       while (1)
       {
-        //turn of heating
-        light_state = LIGHT_OFF;
-        //###show msg
+        //turn off heating
+        digitalWrite(RELAY_PIN, LIGHT_OFF);
+        delay(1 * 1000);
       };
     }
 
