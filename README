@@ -1,0 +1,14 @@
+HTMON
+
+Firmware for wifi-enabled filament drybox.
+
+Parts:
+* wemos d1 mini
+* oled 0.96 ssd1306
+* 1 channel relay shield
+* sht30 temperature and humidity sensor
+* HLK-PM01 (5V) mini power supply 
+* Oven Light Bulb
+
+![1](https://user-images.githubusercontent.com/46632344/149159431-7e3e8dbf-6308-4ccd-af42-b388d6c57052.png)
+![2)](https://user-images.githubusercontent.com/46632344/149159444-a0869bf8-faac-4338-9f79-91c5d2781f30.png)
