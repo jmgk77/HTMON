@@ -500,15 +500,15 @@ void setup()
   light_state = htmon_eeprom.default_light_state;
   digitalWrite(RELAY_PIN, light_state);
 
-  WiFi.mode(WIFI_STA);
-  delay(10);
-
-  //wm.setDebugOutput(false);
-
   String device_name = "HTMON";
 
+  WiFi.mode(WIFI_STA);
+  delay(10);
+  wm.setDebugOutput(false);
   WiFi.hostname(device_name);
   wm.setConfigPortalTimeout(180);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
 
   if (!wm.autoConnect(device_name.c_str()))
   {
