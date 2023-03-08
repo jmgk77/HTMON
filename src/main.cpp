@@ -48,6 +48,7 @@
 
 #include "logo.h"
 #include "nuclear.h"
+#include "version.h"
 
 #define READ_INTERVAL 1
 
@@ -94,7 +95,7 @@ ESP8266HTTPUpdateServer httpUpdater;
 time_t base_time;
 
 float t, h;
-unsigned long lastMillis, last_update2;
+unsigned long lastMillis, mqtt_interval;
 
 #define HT_SIZE 720
 #define HT_REWIND 60
@@ -186,6 +187,7 @@ const char html_config[] = R""""(
 <input type='hidden' name='s' value='1'>
 <input type='submit' value='SAVE'>
 </form>
+Version: %s<br>
 <form action='/update' method='POST' enctype='multipart/form-data'>
 <label for='firmware'>Update Firmware:</label>
 <input type='file' accept='.bin,.bin.gz' name='firmware'>
@@ -394,7 +396,7 @@ void handle_config() {
         s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked",
         htmon_eeprom.automatic_control ? "checked" : "", htmon_eeprom.max_temp,
         htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity,
-        htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port);
+        htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port, VERSION);
     send_html(s);
     free(s);
   }
@@ -509,12 +511,13 @@ void setup() {
   }
 
   // mqtt setup
-  mqtt.setServer(htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port);
-  mqtt.setCallback([](char *, byte *, unsigned int) {});
-
-  httpUpdater.setup(&server, "/update");
+  if (strlen(htmon_eeprom.mqtt_server)) {
+    mqtt.setServer(htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port);
+    mqtt.setCallback([](char *, byte *, unsigned int) {});
+  }
 
   // install www handlers
+  httpUpdater.setup(&server, "/update");
   server.onNotFound(handle_404);
   server.on("/", handle_root);
   server.on("/config", handle_config);
@@ -591,10 +594,11 @@ void loop() {
     MDNS.update();
     SSDP_esp8266.handleClient();
 
-    if (!mqtt.connected() ||
-        (millis() - last_update2) >= (MQTT_REFRESH * 60 * 1000UL)) {
-      last_update2 = millis();
-      mqtt.connect("MEDLEV");
+    if ((strlen(htmon_eeprom.mqtt_server)) &&
+        (!mqtt.connected() ||
+         ((millis() - mqtt_interval) >= (MQTT_REFRESH * 60 * 1000UL)))) {
+      mqtt_interval = millis();
+      mqtt.connect("HTMON");
       mqtt.publish(MQTT_HTMON_LOCALIP, WiFi.localIP().toString().c_str());
       char buf[16];
       snprintf(buf, sizeof(buf), "%.2f", t);
