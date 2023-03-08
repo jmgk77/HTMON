@@ -1,12 +1,17 @@
-//HTMON
-//Copyright JMGK 2021-2022
+// HTMON
+// Copyright JMGK 2021-2022
 
-//Main firmware
+// Main firmware
 
-//This file is part of HTMON
-//This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
-//This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
-//You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
+// This file is part of HTMON
+// This program is free software: you can redistribute it and/or modify it under
+// the terms of the GNU General Public License as published by the Free Software
+// Foundation, either version 3 of the License, or (at your option) any later
+// version. This program is distributed in the hope that it will be useful, but
+// WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+// FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+// details. You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #if !defined(ESP8266)
 #error This code is designed to run on ESP8266 and ESP8266-based boards! Please check your Tools->Board setting.
@@ -14,18 +19,18 @@
 
 #define THERMAL_PROTECTION 60
 
-//#define DEBUG
+// #define DEBUG
 
 #include <Arduino.h>
 
+#include <ESP8266HTTPUpdateServer.h>
+#include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <WiFiManager.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266HTTPUpdateServer.h>
 
-#include <ESP8266mDNS.h>
-#include <ESP8266NetBIOS.h>
 #include <ESP8266LLMNR.h>
+#include <ESP8266NetBIOS.h>
+#include <ESP8266mDNS.h>
 #include <SSDP_esp8266.h>
 
 #define USE_WIRE
@@ -33,12 +38,13 @@
 #ifdef USE_WIRE
 #include <SSD1306Wire.h>
 #else
-#include <brzo_i2c.h>
 #include <SSD1306Brzo.h>
+#include <brzo_i2c.h>
 #endif
-#include <OLEDDisplayUi.h>
-#include <WEMOS_SHT3X.h>
 #include <ESP_EEPROM.h>
+#include <OLEDDisplayUi.h>
+#include <PubSubClient.h>
+#include <WEMOS_SHT3X.h>
 
 #include "logo.h"
 #include "nuclear.h"
@@ -51,8 +57,15 @@
 #define LIGHT_ON 0
 #define LIGHT_OFF 1
 
-struct eeprom_data
-{
+#define MQTT_REFRESH 1
+#define MQTT_HTMON_LOCALIP "HTMON/IP"
+#define MQTT_HTMON_TEMPERATURE "HTMON/TEMPERATURE"
+#define MQTT_HTMON_HUMIDITY "HTMON/HUMIDITY"
+
+WiFiClient mqtt_client;
+PubSubClient mqtt(mqtt_client);
+
+struct eeprom_data {
   char sign = EEPROM_SIGNATURE;
   bool default_light_state = LIGHT_ON;
   bool automatic_control = false;
@@ -60,6 +73,8 @@ struct eeprom_data
   float min_temp = 5;
   float max_humity = 50;
   float min_humity = 5;
+  char mqtt_server[32]; // = "192.168.0.250";
+  unsigned int mqtt_server_port = 1883;
 } htmon_eeprom, htmon_default_eeprom;
 
 #ifdef USE_WIRE
@@ -79,7 +94,7 @@ ESP8266HTTPUpdateServer httpUpdater;
 time_t base_time;
 
 float t, h;
-unsigned long lastMillis;
+unsigned long lastMillis, last_update2;
 
 #define HT_SIZE 720
 #define HT_REWIND 60
@@ -104,9 +119,11 @@ const char html_header2[] PROGMEM = R""""(<style>
 </head>
 <body>)"""";
 
-const char light_on[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABrVBMVEUAAABjYgRVVAUAAC0AAF5+fAlycAkWFgxHSAAAAArMvETKukbKukdgYARGRQOulm8AAAIKCgH//wAZGAQODRHW0teNiwgNDAMMDAAfHhLFwclUUjxhX0kTETYCAgAvLyAyMQFBPxgHCAAoJxlQUAMlJQcjIhJzdgAfHwEREQQSEgkfHgggHhRGRgAmJQcoJhKfngUUEwAODgQXFg4DAgkHBRApKAUhIAwrKB6GhQYaGQIPDwEWFgYVFBAqKQNeXQB5eABnZwBRUAAdHQIZFxwyMQAjIgUjIgu1sLyHhgcPDwQNDAQZGA01NQCSkgBpaQAqKQMkJAgdHA0iIRO/usQNDAN3dgBbWgMSExgTEgGgoABvbgMlJhcIBwGEhAB+fQQbGh0AAAM6OgC1tQCysgFIRwsNCz8AAABEQwBMTAsWFSsaGgGBgAC2tgB+fgIgHxQiIgQlJRQqKhojIhUdHBIcHAQlJRQsLB4jIhgnJRxPTgAdHRArKyMhIBmDfmIAAADk5ADj4wCjowCGhQD09AD//wD9/QDd3QCHhwC6ugD7+wD8/ADW1gDS0gAAAADnl2gqAAAAgHRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACMCwBHEoETEcCRSQBB1sgGhkbbA0BNzcIBj6SvbuLNggJPTYBARpRI1Dk3UQoWRsBF87EETDv6yoc2dYZAmz09WwCBoaHBznl8OQ2L8XRwysZrt+pGAJjnmIBAVb1qlYAAAABYktHRACIBR1IAAAAB3RJTUUH5QwPFRIwUw78IgAAANRJREFUGNNjYGBgYGRiYGBmYWBgZWOAABUGdgZVNQYOTnUQj4ubR0NTi1dbh09XT5+fn4HBQEDQ0MhYyMRUyMzcQlhElMHSytrG1s7ewdHJ2cXVzd2DwdPL28fXr6Gxqdk/IDAoOIRBTJwhNKyltbWtvSM8QkJSCmisdGRUKwh0RsfIQKyNjesCCbTEJ0DdkZiU3N3a2p2SmgYVEEjP6Glt7c3MkoUKMMhl5+Tm5uXLM8BBQWFRUXEJgs9QWlZeXlGJJFBVXVNTW4ckoKBYX6+kDGYCAP4LMfPqfXhdAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjQ4LTAzOjAwf0AOeAAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODo0OC0wMzowMA4dtsQAAAAASUVORK5CYII=)"""";
+const char light_on[] PROGMEM =
+    R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABrVBMVEUAAABjYgRVVAUAAC0AAF5+fAlycAkWFgxHSAAAAArMvETKukbKukdgYARGRQOulm8AAAIKCgH//wAZGAQODRHW0teNiwgNDAMMDAAfHhLFwclUUjxhX0kTETYCAgAvLyAyMQFBPxgHCAAoJxlQUAMlJQcjIhJzdgAfHwEREQQSEgkfHgggHhRGRgAmJQcoJhKfngUUEwAODgQXFg4DAgkHBRApKAUhIAwrKB6GhQYaGQIPDwEWFgYVFBAqKQNeXQB5eABnZwBRUAAdHQIZFxwyMQAjIgUjIgu1sLyHhgcPDwQNDAQZGA01NQCSkgBpaQAqKQMkJAgdHA0iIRO/usQNDAN3dgBbWgMSExgTEgGgoABvbgMlJhcIBwGEhAB+fQQbGh0AAAM6OgC1tQCysgFIRwsNCz8AAABEQwBMTAsWFSsaGgGBgAC2tgB+fgIgHxQiIgQlJRQqKhojIhUdHBIcHAQlJRQsLB4jIhgnJRxPTgAdHRArKyMhIBmDfmIAAADk5ADj4wCjowCGhQD09AD//wD9/QDd3QCHhwC6ugD7+wD8/ADW1gDS0gAAAADnl2gqAAAAgHRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACMCwBHEoETEcCRSQBB1sgGhkbbA0BNzcIBj6SvbuLNggJPTYBARpRI1Dk3UQoWRsBF87EETDv6yoc2dYZAmz09WwCBoaHBznl8OQ2L8XRwysZrt+pGAJjnmIBAVb1qlYAAAABYktHRACIBR1IAAAAB3RJTUUH5QwPFRIwUw78IgAAANRJREFUGNNjYGBgYGRiYGBmYWBgZWOAABUGdgZVNQYOTnUQj4ubR0NTi1dbh09XT5+fn4HBQEDQ0MhYyMRUyMzcQlhElMHSytrG1s7ewdHJ2cXVzd2DwdPL28fXr6Gxqdk/IDAoOIRBTJwhNKyltbWtvSM8QkJSCmisdGRUKwh0RsfIQKyNjesCCbTEJ0DdkZiU3N3a2p2SmgYVEEjP6Glt7c3MkoUKMMhl5+Tm5uXLM8BBQWFRUXEJgs9QWlZeXlGJJFBVXVNTW4ckoKBYX6+kDGYCAP4LMfPqfXhdAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjQ4LTAzOjAwf0AOeAAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODo0OC0wMzowMA4dtsQAAAAASUVORK5CYII=)"""";
 
-const char light_off[] PROGMEM = R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABp1BMVEUAAAA0MzItLCtFQ0BAPjsPDw8hIiABAQOcjHMmJSSikHMFBQX////FxccODg4PDg/e2+FNTEoHBwcBAgAYFxjPzdE+PT1QTlIhHyEBAQEnJycaGhk3NzYLDQofHh4qKSkWFRUaGRktMCYQEBAKCgoMDAwTExIaGBkgIB8WFRYdGxxQT0wKCgkJCAgREBEGBQULCgoWFhYWFRYkISRHRkUODQ0ICAgODQ0SEBEWFhYvLi48PDwzMzMoKCgPDw8ZFxkZGRgUExMXFhbCv8RJSEYJCQkICAgSEhIbGhpISEg0NDQWFRYVFRUUExQaGRrKx8wIBwc7OjouLi4SExMKCglPT084ODgdHR8EBARBQUFAQEAbGhwAAAAdHRxZWVlZWVkpKCkiHyEAAAAiISErKysgICAODg0/Pz9bWlpaWlo/Pz8ZGBkTExIbGxsgICAbGhoXFhYQEA8cHBwlJSQkJCQcHBwhHyApKCcWFhYmJiYmJSUcGxxva2wAAABxcXFxcHBRUVFCQkJ5eXl/f39+fn59fX1tbW1cXFx8fHxqaWmAgIBoaGgAAAAU5oS+AAAAfnRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAjAsARxKBExHAkUkAQdbIBoZG2wNATc3CAY+kr27izYICT02AQEaUSNQ5N1EKFkbARfOxBEw7+sqHNnWGQJs9PVsAgaGhwc55fDw5DYvxdHDKxmu39+pGAJjnp5iAQHIT7PPAAAAAWJLR0QAiAUdSAAAAAd0SU1FB+UMDxUSCHsMRLwAAADTSURBVBjTY2BgYGBkYgADZhYIzSDPwMqgoMjAxq4E4nFwcCirqDKqqXNqaGpxcTEwaDNw6+jq8egb8BoaGfPxCzCYmJqZW1haWdvY2tk7ODo5M7i4url7eNbVNzR6efv4+vkzCAoxBAQ2Nbe0tjUGBQuLiAKNFQsJbW5taWluDwsXh1gbEdnR0tra0hQVDXVHTGwcUEVrfEIiVIAhKbmzq6s7JVUCJiCZlp6RmZUtxQAHObl5efkFCD5DYVFxSWkZkkB5RWVVdQ2SgLRMba2sHJgJAF1JL018Y5qxAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjA4LTAzOjAw+woAggAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODowOC0wMzowMIpXuD4AAAAASUVORK5CYII=)"""";
+const char light_off[] PROGMEM =
+    R""""(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAMAAAAoLQ9TAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAABp1BMVEUAAAA0MzItLCtFQ0BAPjsPDw8hIiABAQOcjHMmJSSikHMFBQX////FxccODg4PDg/e2+FNTEoHBwcBAgAYFxjPzdE+PT1QTlIhHyEBAQEnJycaGhk3NzYLDQofHh4qKSkWFRUaGRktMCYQEBAKCgoMDAwTExIaGBkgIB8WFRYdGxxQT0wKCgkJCAgREBEGBQULCgoWFhYWFRYkISRHRkUODQ0ICAgODQ0SEBEWFhYvLi48PDwzMzMoKCgPDw8ZFxkZGRgUExMXFhbCv8RJSEYJCQkICAgSEhIbGhpISEg0NDQWFRYVFRUUExQaGRrKx8wIBwc7OjouLi4SExMKCglPT084ODgdHR8EBARBQUFAQEAbGhwAAAAdHRxZWVlZWVkpKCkiHyEAAAAiISErKysgICAODg0/Pz9bWlpaWlo/Pz8ZGBkTExIbGxsgICAbGhoXFhYQEA8cHBwlJSQkJCQcHBwhHyApKCcWFhYmJiYmJSUcGxxva2wAAABxcXFxcHBRUVFCQkJ5eXl/f39+fn59fX1tbW1cXFx8fHxqaWmAgIBoaGgAAAAU5oS+AAAAfnRSTlMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAjAsARxKBExHAkUkAQdbIBoZG2wNATc3CAY+kr27izYICT02AQEaUSNQ5N1EKFkbARfOxBEw7+sqHNnWGQJs9PVsAgaGhwc55fDw5DYvxdHDKxmu39+pGAJjnp5iAQHIT7PPAAAAAWJLR0QAiAUdSAAAAAd0SU1FB+UMDxUSCHsMRLwAAADTSURBVBjTY2BgYGBkYgADZhYIzSDPwMqgoMjAxq4E4nFwcCirqDKqqXNqaGpxcTEwaDNw6+jq8egb8BoaGfPxCzCYmJqZW1haWdvY2tk7ODo5M7i4url7eNbVNzR6efv4+vkzCAoxBAQ2Nbe0tjUGBQuLiAKNFQsJbW5taWluDwsXh1gbEdnR0tra0hQVDXVHTGwcUEVrfEIiVIAhKbmzq6s7JVUCJiCZlp6RmZUtxQAHObl5efkFCD5DYVFxSWkZkkB5RWVVdQ2SgLRMba2sHJgJAF1JL018Y5qxAAAAJXRFWHRkYXRlOmNyZWF0ZQAyMDIxLTEyLTE2VDAwOjE4OjA4LTAzOjAw+woAggAAACV0RVh0ZGF0ZTptb2RpZnkAMjAyMS0xMi0xNlQwMDoxODowOC0wMzowMIpXuD4AAAAASUVORK5CYII=)"""";
 
 const char html_footer[] PROGMEM = R""""(
 <div class='status-bar' style='margin:0 auto'>
@@ -162,6 +179,10 @@ const char html_config[] = R""""(
 <input type='text' name='maxh' value='%.2f'><br>
 <label for='minh'>Turn off humidity (Min):</label>
 <input type='text' name='minh' value='%.2f'><br>
+<label for='mqtt_server'>MQTT Broker IP:</label>
+<input type='text' name='mqtt_server' value='%s'><br>
+<label for='mqtt_server_port'>MQTT Broker Port:</label>
+<input type='text' name='mqtt_server_port' value='%d'><br>
 <input type='hidden' name='s' value='1'>
 <input type='submit' value='SAVE'>
 </form>
@@ -203,28 +224,24 @@ tension: 0.1,
 });
 )"""";
 
-void read_th()
-{
+void read_th() {
   sht30.get();
 
-  //read temperature
+  // read temperature
   t = sht30.cTemp;
 
-  //read humidity
+  // read humidity
   h = sht30.humidity;
 
-  if (isnan(h) || isnan(t))
-  {
-    //error
+  if (isnan(h) || isnan(t)) {
+    // error
 #ifdef DEBUG
     Serial.println(F("Failed to read from DHT sensor!"));
 #endif
     t = h = 0;
-  }
-  else
-  {
+  } else {
 #ifdef DEBUG
-    //serial
+    // serial
     Serial.print(F("Temperature: "));
     Serial.print(t);
     Serial.print(F("°C, Humidity: "));
@@ -233,66 +250,56 @@ void read_th()
 #endif
   }
 
-  //save in table
+  // save in table
   t_table[th_index] = t;
   h_table[th_index] = h;
   th_index++;
 
-  //rewind table
-  if (th_index == HT_SIZE)
-  {
-    //move
-    for (unsigned int i = 0; i < HT_SIZE - HT_REWIND; i++)
-    {
+  // rewind table
+  if (th_index == HT_SIZE) {
+    // move
+    for (unsigned int i = 0; i < HT_SIZE - HT_REWIND; i++) {
       t_table[i] = t_table[i + HT_REWIND];
       h_table[i] = h_table[i + HT_REWIND];
     }
-    //zero
-    for (unsigned int i = HT_SIZE - HT_REWIND; i < HT_SIZE; i++)
-    {
+    // zero
+    for (unsigned int i = HT_SIZE - HT_REWIND; i < HT_SIZE; i++) {
       t_table[i] = 0;
       h_table[i] = 0;
     }
-    //adjust time for labels
+    // adjust time for labels
     base_time += 60 * 60;
-    //set index
+    // set index
     th_index -= HT_REWIND;
   }
 }
 
-String generate_data()
-{
+String generate_data() {
   String s;
   s = "const t_data = [";
-  //dump temp table
-  for (unsigned int i = 0; i < HT_SIZE; i++)
-  {
+  // dump temp table
+  for (unsigned int i = 0; i < HT_SIZE; i++) {
     s += String(t_table[i], 2);
     s += ",";
   }
   s += "];const h_data = [";
-  //dump humidity table
-  for (unsigned int i = 0; i < HT_SIZE; i++)
-  {
+  // dump humidity table
+  for (unsigned int i = 0; i < HT_SIZE; i++) {
     s += String(h_table[i], 2);
     s += ",";
   }
   s += "];const l_data = [";
-  //generate empty labels
+  // generate empty labels
   time_t now = base_time;
-  for (unsigned int i = 0; i < th_index; i++)
-  {
-    if (i % 60 == 0)
-    {
+  for (unsigned int i = 0; i < th_index; i++) {
+    if (i % 60 == 0) {
       char buf[16];
       struct tm *ptm;
       ptm = localtime(&now);
       now += 60 * 60;
       snprintf(buf, sizeof(buf), "%02d:%02d", ptm->tm_hour, ptm->tm_min);
       s += "\"" + String(buf) + "\",";
-    }
-    else
-    {
+    } else {
       s += "\"\",";
     }
   }
@@ -300,46 +307,40 @@ String generate_data()
   return s;
 }
 
-void send_html(const char *z, bool refresh = false)
-{
+void send_html(const char *z, bool refresh = false) {
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send_P(200, "text/html", html_header);
-  if (light_state)
-  {
+  if (light_state) {
     server.sendContent_P(light_off);
-  }
-  else
-  {
+  } else {
     server.sendContent_P(light_on);
   }
-  String s = "'/><title>HTMON - (" + String(t, 2) + "° " + String(h, 2) + "%)</title>";
+  String s =
+      "'/><title>HTMON - (" + String(t, 2) + "° " + String(h, 2) + "%)</title>";
   server.sendContent(s);
-  if (refresh)
-  {
+  if (refresh) {
     server.sendContent("<meta http-equiv='refresh' content='60'>");
   }
   server.sendContent_P(html_header2);
   server.sendContent(z);
   char *b = (char *)malloc(512);
-  snprintf(b, 512, html_footer, String(t, 2).c_str(), String(h, 2).c_str(), light_state ? "OFF" : "ON");
+  snprintf(b, 512, html_footer, String(t, 2).c_str(), String(h, 2).c_str(),
+           light_state ? "OFF" : "ON");
   server.sendContent(b);
   free(b);
 }
 
-void handle_404()
-{
-  send_html("<p>Not found!</p>");
-}
+void handle_404() { send_html("<p>Not found!</p>"); }
 
-void handle_root()
-{
+void handle_root() {
   String s;
   s = String(html_main);
   s += "<script>";
-  //if automatic control enabled, disable manual button (via JS)
-  if (htmon_eeprom.automatic_control)
-  {
-    s += "var b=document.getElementById('light');b.disabled=true;b.style.color='#aaa';";
+  // if automatic control enabled, disable manual button (via JS)
+  if (htmon_eeprom.automatic_control) {
+    s += "var "
+         "b=document.getElementById('light');b.disabled=true;b.style.color='#"
+         "aaa';";
   }
   s += generate_data();
   s += js_script;
@@ -347,93 +348,91 @@ void handle_root()
   send_html(s.c_str(), true);
 }
 
-void handle_config()
-{
-  if (server.hasArg("s"))
-  {
-    //get data
-    if (server.hasArg("light_state"))
-    {
+void handle_config() {
+  if (server.hasArg("s")) {
+    // get data
+    if (server.hasArg("light_state")) {
       htmon_eeprom.default_light_state = 0;
-    }
-    else
-    {
+    } else {
       htmon_eeprom.default_light_state = 1;
     }
-    if (server.hasArg("automatic"))
-    {
+    if (server.hasArg("automatic")) {
       htmon_eeprom.automatic_control = 1;
-    }
-    else
-    {
+    } else {
       htmon_eeprom.automatic_control = 0;
     }
-    if (server.hasArg("maxt"))
-    {
+    if (server.hasArg("maxt")) {
       htmon_eeprom.max_temp = server.arg("maxt").toFloat();
     }
-    if (server.hasArg("mint"))
-    {
+    if (server.hasArg("mint")) {
       htmon_eeprom.min_temp = server.arg("mint").toFloat();
     }
-    if (server.hasArg("maxh"))
-    {
+    if (server.hasArg("maxh")) {
       htmon_eeprom.max_humity = server.arg("maxh").toFloat();
     }
-    if (server.hasArg("minh"))
-    {
+    if (server.hasArg("minh")) {
       htmon_eeprom.min_humity = server.arg("minh").toFloat();
     }
-    //save data
+    // save mtqq to eeprom
+    if (server.hasArg("mqtt_server")) {
+      strncpy(htmon_eeprom.mqtt_server, server.arg("mqtt_server").c_str(),
+              sizeof(htmon_eeprom.mqtt_server));
+    }
+    if (server.hasArg("mqtt_server_port")) {
+      htmon_eeprom.mqtt_server_port = server.arg("mqtt_server_port").toInt();
+    }
+
+    // save data
     EEPROM.put(0, htmon_eeprom);
     EEPROM.commit();
 
-    server.send(200, "text/html", "<meta http-equiv='refresh' content='0; url=/config' />");
-  }
-  else
-  {
+    server.send(200, "text/html",
+                "<meta http-equiv='refresh' content='0; url=/config' />");
+  } else {
     char *s = (char *)malloc(2048);
-    snprintf(s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked", htmon_eeprom.automatic_control ? "checked" : "", htmon_eeprom.max_temp, htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity);
+    snprintf(
+        s, 2048, html_config, htmon_eeprom.default_light_state ? "" : "checked",
+        htmon_eeprom.automatic_control ? "checked" : "", htmon_eeprom.max_temp,
+        htmon_eeprom.min_temp, htmon_eeprom.max_humity, htmon_eeprom.min_humity,
+        htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port);
     send_html(s);
     free(s);
   }
 }
 
-void handle_now()
-{
+void handle_now() {
   String s;
   s = String(t, 2) + ";" + String(h, 2);
   server.send(200, "text/txt", s);
 }
 
-void handle_light()
-{
+void handle_light() {
   light_state ^= 1;
   digitalWrite(RELAY_PIN, light_state);
-  server.send(200, "text/html", "<meta http-equiv='refresh' content='0; url=/' />");
+  server.send(200, "text/html",
+              "<meta http-equiv='refresh' content='0; url=/' />");
 }
 
-void handle_reboot()
-{
-  server.send(200, "text/html", "<meta http-equiv='refresh' content='30; url=/' />");
+void handle_reboot() {
+  server.send(200, "text/html",
+              "<meta http-equiv='refresh' content='30; url=/' />");
   delay(1 * 1000);
   ESP.restart();
   delay(2 * 1000);
 }
 
-void handle_reset()
-{
-  //erase eeprom
+void handle_reset() {
+  // erase eeprom
   EEPROM.put(0, htmon_default_eeprom);
   EEPROM.commit();
-  //reset wifi
+  // reset wifi
   wm.resetSettings();
   handle_reboot();
 }
 
-void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
-{
-  //info
+void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x,
+               int16_t y) {
+  // info
   display->drawRect(x + 0, y + 0, 128, 64);
   display->setTextAlignment(TEXT_ALIGN_LEFT);
   display->drawString(x + 10, y + 15, "Temperatura:");
@@ -444,33 +443,29 @@ void draw_info(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16
   display->display();
 }
 
-void draw_h_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
-{
-  //humidity
+void draw_h_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x,
+                  int16_t y) {
+  // humidity
   display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
   display->drawString(x + (128 / 2), y + 64 - 5, "HUMIDITY");
   unsigned int t_index = (th_index < 128) ? 0 : (th_index - 128);
-  for (unsigned int xx = 0; xx < 128; xx++)
-  {
+  for (unsigned int xx = 0; xx < 128; xx++) {
     unsigned int yy = (unsigned int)h_table[t_index + xx];
-    yy = (yy < 0) ? 0 : (yy > 64) ? 64
-                                  : yy;
+    yy = (yy < 0) ? 0 : (yy > 64) ? 64 : yy;
     display->setPixel(x + xx, y + 64 - yy);
   }
   display->display();
 }
 
-void draw_t_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, int16_t y)
-{
-  //temperature
+void draw_t_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x,
+                  int16_t y) {
+  // temperature
   display->setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
   display->drawString(x + (128 / 2), y + 64 - 5, "TEMPERATURE");
   unsigned int t_index = (th_index < 128) ? 0 : (th_index - 128);
-  for (unsigned int xx = 0; xx < 128; xx++)
-  {
+  for (unsigned int xx = 0; xx < 128; xx++) {
     unsigned int yy = (unsigned int)t_table[t_index + xx];
-    yy = (yy < 0) ? 0 : (yy > 64) ? 64
-                                  : yy;
+    yy = (yy < 0) ? 0 : (yy > 64) ? 64 : yy;
     display->setPixel(x + xx, y + 64 - yy);
   }
   display->display();
@@ -479,23 +474,21 @@ void draw_t_graph(OLEDDisplay *display, OLEDDisplayUiState *state, int16_t x, in
 FrameCallback frames[] = {draw_info, draw_h_graph, draw_t_graph};
 int frameCount = 3;
 
-void setup()
-{
+void setup() {
 #ifdef DEBUG
   Serial.begin(115200);
 #endif
 
   EEPROM.begin(sizeof(eeprom_data));
 
-  //if there's valid EEPROM config, load it
+  // if there's valid EEPROM config, load it
   eeprom_data temp_eeprom;
   EEPROM.get(0, temp_eeprom);
-  if (temp_eeprom.sign == EEPROM_SIGNATURE)
-  {
+  if (temp_eeprom.sign == EEPROM_SIGNATURE) {
     EEPROM.get(0, htmon_eeprom);
   }
 
-  //apply default relay value
+  // apply default relay value
   pinMode(RELAY_PIN, OUTPUT);
   light_state = htmon_eeprom.default_light_state;
   digitalWrite(RELAY_PIN, light_state);
@@ -510,15 +503,18 @@ void setup()
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
 
-  if (!wm.autoConnect(device_name.c_str()))
-  {
+  if (!wm.autoConnect(device_name.c_str())) {
     ESP.restart();
     delay(1 * 1000);
   }
 
+  // mqtt setup
+  mqtt.setServer(htmon_eeprom.mqtt_server, htmon_eeprom.mqtt_server_port);
+  mqtt.setCallback([](char *, byte *, unsigned int) {});
+
   httpUpdater.setup(&server, "/update");
 
-  //install www handlers
+  // install www handlers
   server.onNotFound(handle_404);
   server.on("/", handle_root);
   server.on("/config", handle_config);
@@ -526,17 +522,18 @@ void setup()
   server.on("/light", handle_light);
   server.on("/reboot", handle_reboot);
   server.on("/reset", handle_reset);
-  server.on("/description.xml", HTTP_GET, []()
-            { SSDP_esp8266.schema(server.client()); });
+  server.on("/description.xml", HTTP_GET,
+            []() { SSDP_esp8266.schema(server.client()); });
   server.begin();
 
-  //discovery protocols
+  // discovery protocols
   MDNS.begin(device_name);
   MDNS.addService("http", "tcp", 80);
   NBNS.begin(device_name.c_str());
   LLMNR.begin(device_name.c_str());
   SSDP_esp8266.setName(device_name);
-  SSDP_esp8266.setDeviceType("urn:schemas-upnp-org:device:" + device_name + ":1");
+  SSDP_esp8266.setDeviceType("urn:schemas-upnp-org:device:" + device_name +
+                             ":1");
   SSDP_esp8266.setSchemaURL("description.xml");
   SSDP_esp8266.setSerialNumber(ESP.getChipId());
   SSDP_esp8266.setURL("/");
@@ -545,11 +542,10 @@ void setup()
   SSDP_esp8266.setManufacturer("JMGK");
   SSDP_esp8266.setManufacturerURL("http://www.jmgk.com.br/");
 
-  //get internet time
+  // get internet time
   configTime("<-03>3", "pool.ntp.org");
-  //verifica 2021...
-  while (time(nullptr) < 1609459200)
-  {
+  // verifica 2021...
+  while (time(nullptr) < 1609459200) {
     delay(100);
   }
   base_time = time(nullptr);
@@ -561,99 +557,98 @@ void setup()
   Serial.println(F("------------------------------------"));
 #endif
 
-  //init temperature and humidity tables
+  // init temperature and humidity tables
   memset(t_table, 0, sizeof(t_table));
   memset(h_table, 0, sizeof(h_table));
   th_index = 0;
 
   lastMillis = millis() - (READ_INTERVAL * 60 * 1000UL);
 
-  //FPS and time per frame
+  // FPS and time per frame
   ui.setTargetFPS(30);
   ui.setTimePerFrame(7 * 1000);
-  //no frame indicators
+  // no frame indicators
   ui.disableAllIndicators();
-  //set animation and frames
+  // set animation and frames
   ui.setFrameAnimation(SLIDE_UP);
   ui.setFrames(frames, frameCount);
   ui.init();
   display.flipScreenVertically();
   display.setFont(ArialMT_Plain_10);
 
-  //logo
-  display.drawXbm((128 - logo_width) / 2, (64 - logo_height) / 2, logo_width, logo_height, logo);
+  // logo
+  display.drawXbm((128 - logo_width) / 2, (64 - logo_height) / 2, logo_width,
+                  logo_height, logo);
   display.display();
   delay(3 * 1000);
 }
 
-void loop()
-{
+void loop() {
   int remainingTimeBudget = ui.update();
 
-  if (remainingTimeBudget > 0)
-  {
+  if (remainingTimeBudget > 0) {
     server.handleClient();
     MDNS.update();
     SSDP_esp8266.handleClient();
 
-    if (millis() - lastMillis >= (READ_INTERVAL * 60 * 1000UL))
-    {
+    if (!mqtt.connected() ||
+        (millis() - last_update2) >= (MQTT_REFRESH * 60 * 1000UL)) {
+      last_update2 = millis();
+      mqtt.connect("MEDLEV");
+      mqtt.publish(MQTT_HTMON_LOCALIP, WiFi.localIP().toString().c_str());
+      char buf[16];
+      snprintf(buf, sizeof(buf), "%.2f", t);
+      mqtt.publish(MQTT_HTMON_TEMPERATURE, buf);
+      snprintf(buf, sizeof(buf), "%.2f", h);
+      mqtt.publish(MQTT_HTMON_HUMIDITY, buf);
+    }
+    mqtt.loop();
+
+    if (millis() - lastMillis >= (READ_INTERVAL * 60 * 1000UL)) {
       lastMillis = millis();
       read_th();
     }
 
-    //thermal protection
-    if (t >= THERMAL_PROTECTION)
-    {
-      //shutdown
+    // thermal protection
+    if (t >= THERMAL_PROTECTION) {
+      // shutdown
       ui.disableAutoTransition();
       display.clear();
-      display.drawXbm((128 - nuclear_width) / 2, (64 - nuclear_height) / 2, nuclear_width, nuclear_height, nuclear);
+      display.drawXbm((128 - nuclear_width) / 2, (64 - nuclear_height) / 2,
+                      nuclear_width, nuclear_height, nuclear);
       display.setTextAlignment(TEXT_ALIGN_CENTER_BOTH);
       display.drawString(128 / 2, 64 - 5, "THERMAL SHUTDOWN");
       display.display();
       server.stop();
-      //hang
-      while (1)
-      {
-        //turn off heating
+      // hang
+      while (1) {
+        // turn off heating
         digitalWrite(RELAY_PIN, LIGHT_OFF);
         delay(1 * 1000);
       };
     }
 
-    //automatic control...
-    if (htmon_eeprom.automatic_control)
-    {
-      //too hot, off
-      if (t > htmon_eeprom.max_temp)
-      {
+    // automatic control...
+    if (htmon_eeprom.automatic_control) {
+      // too hot, off
+      if (t > htmon_eeprom.max_temp) {
         light_state = LIGHT_OFF;
-      }
-      else
-      {
-        //too dry, off
-        if (h < htmon_eeprom.min_humity)
-        {
+      } else {
+        // too dry, off
+        if (h < htmon_eeprom.min_humity) {
           light_state = LIGHT_OFF;
-        }
-        else
-        {
-          //too wet, on
-          if (h > htmon_eeprom.max_humity)
-          {
+        } else {
+          // too wet, on
+          if (h > htmon_eeprom.max_humity) {
             light_state = LIGHT_ON;
-          }
-          else
-          {
-            //too cold (?), on
-            if (t < htmon_eeprom.min_temp)
-            {
+          } else {
+            // too cold (?), on
+            if (t < htmon_eeprom.min_temp) {
               light_state = LIGHT_ON;
             }
           }
         }
-        //apply
+        // apply
         digitalWrite(RELAY_PIN, light_state);
       }
     }
